@@ -1,0 +1,93 @@
+import streamlit as st
+import plotly.graph_objects as go
+import os
+from pyomo.opt import SolverManagerFactory
+
+st.set_page_config(page_title="Pipeline Optimization (NEOS)", layout="wide")
+st.title("🌐 Pipeline Optimization Dashboard (via NEOS Couenne)")
+
+st.markdown("Enter pipeline parameters and run the optimizer using **NEOS Couenne**. Visual insights and results will be shown below.")
+
+# --- Sidebar Inputs ---
+with st.sidebar:
+    st.header("🧮 Input Parameters")
+    FLOW = st.number_input("Flow rate (KL/Hr)", value=1500.0)
+    KV = st.number_input("Kinematic Viscosity (cSt)", value=2.5)
+    rho = st.number_input("Density (kg/m³)", value=890.0)
+    SFC_J = st.number_input("SFC at Jamnagar", value=205.0)
+    SFC_R = st.number_input("SFC at Rajkot", value=205.0)
+    SFC_S = st.number_input("SFC at Surendranagar", value=205.0)
+    RateDRA = st.number_input("DRA rate (Rs/Litre)", value=200.0)
+    Price_HSD = st.number_input("HSD rate (Rs/Litre)", value=100.0)
+
+# --- Run Button ---
+if st.button("Run Optimization"):
+    try:
+        st.info("🔄 Submitting model to NEOS Couenne... please wait...")
+
+        # Set input values into global scope
+        globals().update({
+            "FLOW": FLOW, "KV": KV, "rho": rho,
+            "SFC_J": SFC_J, "SFC_R": SFC_R, "SFC_S": SFC_S,
+            "RateDRA": RateDRA, "Price_HSD": Price_HSD
+        })
+
+        os.environ['NEOS_EMAIL'] = 'parichay.nitwarangal@gmail.com'
+
+        with open("Pipeline_solver.py", "r") as f:
+            code = f.read()
+        exec(code, globals())
+
+        solver_manager = SolverManagerFactory('neos')
+        result = solver_manager.solve(model, opt='couenne')
+
+        st.success("✅ Optimization completed successfully!")
+
+        st.header("📌 Total Optimization Cost")
+        st.metric("Total Cost (INR)", f"₹ {model.Objf():,.2f}")
+
+        st.header("📍 Station-Wise Summary")
+
+        stations = {
+            "Vadinar": [NOP1(), N1(), DR1(), EFFP1(), HEAD1(), SDH1()],
+            "Jamnagar": [NOP2(), N2(), DR2(), EFFP2(), HEAD2(), SDH2()],
+            "Rajkot": [NOP3(), N3(), DR3(), EFFP3(), HEAD3(), SDH3()],
+            "Surendranagar": [NOP5(), N5(), DR4(), EFFP5(), HEAD5(), SDH5()],
+        }
+
+        for name, (pumps, rpm, dra, eff, head, sdh) in stations.items():
+            st.subheader(f"🏭 {name}")
+            cols = st.columns(3)
+            cols[0].metric("No. of Pumps", pumps)
+            cols[1].metric("Speed (RPM)", f"{rpm}")
+            cols[2].metric("DRA (%)", f"{dra}")
+            st.caption(f"Efficiency: {eff:.2f} | Head: {head:.2f} m | SDH: {sdh:.2f} m")
+
+        st.header("📊 Visual Insights")
+
+        labels = list(stations.keys())
+        rpm_data = [N1(), N2(), N3(), N5()]
+        pump_data = [NOP1(), NOP2(), NOP3(), NOP5()]
+        dra_data = [DR1(), DR2(), DR3(), DR4()]
+        eff_data = [EFFP1(), EFFP2(), EFFP3(), EFFP5()]
+
+        fig1 = go.Figure([go.Bar(x=labels, y=rpm_data, name="RPM", marker_color="blue")])
+        fig1.update_layout(title="Pump Speed by Station", xaxis_title="Station", yaxis_title="RPM")
+        st.plotly_chart(fig1, use_container_width=True)
+
+        fig2 = go.Figure([go.Bar(x=labels, y=pump_data, name="Pumps", marker_color="green")])
+        fig2.update_layout(title="Number of Pumps", xaxis_title="Station", yaxis_title="Count")
+        st.plotly_chart(fig2, use_container_width=True)
+
+        fig3 = go.Figure([go.Bar(x=labels, y=dra_data, name="DRA (%)", marker_color="red")])
+        fig3.update_layout(title="DRA Usage", xaxis_title="Station", yaxis_title="DRA (%)")
+        st.plotly_chart(fig3, use_container_width=True)
+
+        fig4 = go.Figure([go.Scatter(x=labels, y=eff_data, mode='lines+markers', name="Efficiency", line=dict(color="orange"))])
+        fig4.update_layout(title="Pump Efficiency", xaxis_title="Station", yaxis_title="Efficiency")
+        st.plotly_chart(fig4, use_container_width=True)
+
+        st.caption("Parichay Das | Indian Oil Corporation")
+
+    except Exception as e:
+        st.error(f"❌ Error: {e}")
